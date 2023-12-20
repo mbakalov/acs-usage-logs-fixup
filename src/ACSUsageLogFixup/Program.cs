@@ -1,4 +1,5 @@
 ﻿using System.Text;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using Azure.Storage.Blobs;
 using Azure.Storage.Blobs.Specialized;
@@ -53,30 +54,54 @@ var blobPaths = new List<string>();
 
 await foreach (var blobItem in mainContainerClient.GetBlobsAsync())
 {
-    if (blobNameRegex.IsMatch(blobItem.Name))
+    if (blobNameRegex.IsMatch(blobItem.Name) && !blobItem.Name.EndsWith("_updated.json"))
     {
         Console.WriteLine("Found: {0}", blobItem.Name);
         blobPaths.Add(blobItem.Name);
     }
 }
 
+var tagFixupRegex = new Regex("\"tags\":{.*},\"correlationVector\"");
+const string replacement = "\"tags\":\"\",\"correlationVector\"";
+
 foreach (var blobPath in blobPaths)
 {
     Console.WriteLine($"Processing: {blobPath}");
 
     var srcBlobClient = mainContainerClient.GetBlobClient(blobPath);
+    var bkpBlobClient = backupContainerClient.GetAppendBlobClient(blobPath);
+
+    string newBlobPath = blobPath.Replace(".json", "_updated.json");
+    var newBlobClient = mainContainerClient.GetAppendBlobClient(newBlobPath);
+
+    Console.WriteLine("Preparing backup blob.");
+    await bkpBlobClient.CreateAsync();
+
+    Console.WriteLine("Preparing updated blob.");
+    await newBlobClient.CreateAsync();
     
-    var result = await srcBlobClient.DownloadContentAsync();
-    var str = result.Value.Content.ToString();
+    using (var stream = await srcBlobClient.OpenReadAsync())
+    {
+        using var reader = new StreamReader(stream);
 
-    Console.WriteLine("Data:");
-    Console.WriteLine(str);
+        string? line;
 
-    var dstBlobClient = backupContainerClient.GetAppendBlobClient(blobPath);
-    await dstBlobClient.CreateAsync();
+        while ((line = await reader.ReadLineAsync()) != null)
+        {
+            Console.WriteLine(line);
 
-    byte[] arr = Encoding.UTF8.GetBytes(str);
-    
-    await dstBlobClient.AppendBlockAsync(new MemoryStream(arr));
-    Console.WriteLine("Written to destination");
+            string fixedLine = tagFixupRegex.Replace(line, replacement);
+
+            object? _ = JsonSerializer.Deserialize<object>(fixedLine);
+            Console.WriteLine("valid json");
+
+            // Original line goes into the backup
+            byte[] arr = Encoding.UTF8.GetBytes(line + Environment.NewLine);
+            await bkpBlobClient.AppendBlockAsync(new MemoryStream(arr));
+
+            // Fixed line goes into the _updated.json blob
+            arr = Encoding.UTF8.GetBytes(fixedLine + Environment.NewLine);
+            await newBlobClient.AppendBlockAsync(new MemoryStream(arr));
+        }
+    }
 }

@@ -30,6 +30,8 @@ if (mode != "safe" && mode != "update")
     return;
 }
 
+bool update = mode == "update";
+
 var blobServiceClient = new BlobServiceClient(connStr);
 
 // This tool is specifically working with the "usage" logs
@@ -77,9 +79,12 @@ foreach (var blobPath in blobPaths)
     Console.WriteLine("Preparing backup blob.");
     await bkpBlobClient.CreateAsync();
 
-    Console.WriteLine("Preparing updated blob.");
-    await newBlobClient.CreateAsync();
-    
+    if (update)
+    {
+        Console.WriteLine("Preparing updated blob.");
+        await newBlobClient.CreateAsync();
+    }
+
     using (var stream = await srcBlobClient.OpenReadAsync())
     {
         using var reader = new StreamReader(stream);
@@ -88,9 +93,14 @@ foreach (var blobPath in blobPaths)
 
         while ((line = await reader.ReadLineAsync()) != null)
         {
-            Console.WriteLine(line);
+            // Console.WriteLine(line);
 
-            string fixedLine = tagFixupRegex.Replace(line, replacement);
+            string fixedLine = line;
+            if (tagFixupRegex.IsMatch(line))
+            {
+                Console.WriteLine("Invalid line, fixing");
+                fixedLine = tagFixupRegex.Replace(line, replacement);
+            }
 
             object? _ = JsonSerializer.Deserialize<object>(fixedLine);
             Console.WriteLine("valid json");
@@ -100,8 +110,22 @@ foreach (var blobPath in blobPaths)
             await bkpBlobClient.AppendBlockAsync(new MemoryStream(arr));
 
             // Fixed line goes into the _updated.json blob
-            arr = Encoding.UTF8.GetBytes(fixedLine + Environment.NewLine);
-            await newBlobClient.AppendBlockAsync(new MemoryStream(arr));
+            if (update)
+            {
+                arr = Encoding.UTF8.GetBytes(fixedLine + Environment.NewLine);
+                await newBlobClient.AppendBlockAsync(new MemoryStream(arr));
+            }
         }
     }
+
+    // Delete original blob!
+    if (update)
+    {
+        bool deleted = await srcBlobClient.DeleteIfExistsAsync();
+        Console.WriteLine($"Original blob deleted? {deleted}");
+    }
+
+    Console.WriteLine("Done");
 }
+
+Console.WriteLine("All blobs done, OK");

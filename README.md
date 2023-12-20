@@ -37,6 +37,8 @@ Use at your own risk!
 
     1. **Delete** the `<originalname>.json`
 
+To run:
+
 1. Set environment variable `AZURE_STORAGE_CONNECTION_STRING`.
 
 1. In src\ACSUsageLogFixup run: `dotnet restore`

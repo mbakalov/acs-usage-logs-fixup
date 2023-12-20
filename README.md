@@ -10,7 +10,8 @@ Use at your own risk!
 `ACSUsageLogFixup.exe <month> <day> <mode>`, where:
 
 * `<month>` and `<day>` are used to construct the
-`/m=<month>/d=<day>/` part of the log path. Run the tool multiple times for each day to be processed.
+  `/m=<month>/d=<day>/` part of the log path. Run the tool multiple times, once
+  for each day to be processed.
 
 * `mode` is either "safe" or "update"
   * "safe" means source container ("insights-logs-usage") remains

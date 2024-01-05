@@ -47,21 +47,39 @@ await backupContainerClient.CreateIfNotExistsAsync();
 Console.WriteLine("Done");
 
 // resourceId=/SUBSCRIPTIONS/<sub-id>/RESOURCEGROUPS/<rg-name>>/PROVIDERS/MICROSOFT.COMMUNICATION/COMMUNICATIONSERVICES/<resource-name>/y=<YYYY>/m=<MM>/d=<dd>/h=<hh>/m=<mm>/PT1H.json
-string pattern = $"/m={month}/d={day}/";
+string pattern = $"/m={month}/d={day}";
 var blobNameRegex = new Regex(pattern);
 
 Console.WriteLine($"Collecting blobs. Pattern={pattern}");
 
 var blobPaths = new List<string>();
 
-await foreach (var blobItem in mainContainerClient.GetBlobsAsync())
+// Quick hacky way: run one loop iteration to get the "name" of the first blob in the hierarchical
+// storage. This will be the search prefix to speed to the "real" search loop below.
+string prefix = string.Empty;
+await foreach (var blobItem in mainContainerClient.GetBlobsByHierarchyAsync())
 {
-    if (blobNameRegex.IsMatch(blobItem.Name) && !blobItem.Name.EndsWith("_updated.json"))
+    if (blobNameRegex.IsMatch(blobItem.Blob.Name))
     {
-        Console.WriteLine("Found: {0}", blobItem.Name);
-        blobPaths.Add(blobItem.Name);
+        prefix = blobItem.Blob.Name;
+        break;
     }
 }
+
+Console.WriteLine("Prefix:");
+Console.WriteLine(prefix);
+
+await foreach (var blobItem in mainContainerClient.GetBlobsByHierarchyAsync(prefix: prefix))
+{
+    if  (blobNameRegex.IsMatch(blobItem.Blob.Name) && 
+        blobItem.Blob.Name.EndsWith(".json") &&
+        !blobItem.Blob.Name.EndsWith("_updated.json"))
+    {
+        Console.WriteLine("Found: {0}", blobItem.Blob.Name);
+        blobPaths.Add(blobItem.Blob.Name);
+    }
+}
+
 
 var tagFixupRegex = new Regex("\"tags\":{.*},\"correlationVector\"");
 const string replacement = "\"tags\":\"\",\"correlationVector\"";
